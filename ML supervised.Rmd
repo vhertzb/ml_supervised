@@ -1,0 +1,644 @@
+---
+title: "ML Supervised"
+author: "Vicki Hertzberg"
+date: "3/26/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Housekeeping
+
+
+
+As we are getting started, you will need to install and load the following R packages:
+
+* rpart
+* partykit
+* tidyverse
+* faraway
+* NHANES
+* mosaic
+* RColorBrewer
+* reshape2
+* plot3D
+* parallel
+* randomForestSRC
+* ggRandomForests
+* party
+
+## Machine Learning: Supervised Techniques
+
+Our goal is to predict some outcome variable, Y, from a set of independent variables,
+
+\begin{equation}
+
+\{ X_1, X_2, ..., X_p \}
+
+\end{equation}
+
+Let's think back to linear regression. We have a basic model
+
+\begin{equation}
+
+Y = \beta_0 + \beta_1 X_1 + ... + \beta_p X_p
+
+\end{equation}
+
+Our goal is to have the fewest independent variables while maintaining a good predictive capacity. 
+
+Linear regression has several advantages:
+
+* There is very nice theory going along with it.
+* It scales well.
+
+But these advantages do not come without a price:
+
+* It is only one type of model (or function) for the mean
+* Yet the space of possible model forms is infinite.
+
+With *machine learning* the idea is that a model can be tuned to a specific data set. This term arose in the 1950's for a set of techniques to extract as much information as possible from a dataset without human intervention. Nowdays we search for good models where good means:
+
+* the model makes accurate predictions; and
+* the model scales well.
+
+This is not to say that regression is obsolete, because it is still the starter model.
+
+As mentioned above there are two types of machine learning:
+
+* Supervised: we model a particular response as a funciton of some explanatory variables
+* Unsupervised: we find patterns or groupings where there exists no clear response variables.
+
+Today we are talking about supervised learning. In this case we want to identify the function that that describes the relationship between inputs and outputs, kind of like a black box. For instance,
+
+* you can use season as input and outdoor temperature as output
+* you can use latitude and day of the year as input and outdoor temperature as output
+
+So suppose we have successive ozone readings, but we also have some other information and we want to choose from a set of independent variables.
+
+One way that we can choose the independent variables is to create a *regression tree* such that the variables split the space into a series of partitions where the outcome variables are more and more alike. 
+
+Well that certainly sounds like a big mess, doesn't it?
+
+This technique is called *recursive partitioning* and it enables exploring the data space, making it easier to visualize decision rules of for a continuous outcome (a regression tree), like we are examining here, or for a categorical outcome (a decision tree), like we will talk about in a bit.
+
+First, today's vocabulary lesson:
+
+|          Term      |     Definition                                                                |
+|--------------------|-------------------------------------------------------------------------------|
+| Root node          | Represents the entire pop'n, gets divided into 2 more homogeneous subsets     |
+| Splitting          | Dividing a node into two or more sub-nodes                                    |
+| Node               | Some  (sub)set of observations                                                |
+| Decision Node      | When a sub-node splits into further subnodes                                  |
+| Leaf/Terminal Node | Nodes that do not split further                                               |
+| Pruning            | Removal of sub-nodes from a decision node; the opposite of splitting          |
+| Branch/Sub-Tree    | A sub-section of an entire tree                                               |
+| Parent/Child Node  | A node that is divided into submodes is the parent, the sub-node is the child |
+
+One R tool that makes this a lot easier to implement is the package called rpart, and we will load it now. 
+
+```{r}
+library(rpart)
+library(partykit)
+library(tidyverse)
+library(RColorBrewer)
+library(reshape2)
+library(NHANES)
+library(mosaic)
+```
+
+We will proceed in a stepwise manner. 
+
+1. Grow the tree.
+2. Explore the results.
+3. Prune the tree.
+
+### 1. Grow the Tree
+
+To grow the tree we will use the command
+
+_rpart_(*formula*, _data =_, _method =_, _control =_) where 
+
+* *formula* is in the format Y ~ X1 + X2 + ... + Xp
+
+* _data =_ specifies the data frame
+
+* _method = "anova"_ for a regression tree
+
+* _method = "class"_ for a decision tree
+
+* _control =_ a series of optional parameters that controls the process of tree growth.
+
+The output is an object called *fit*. 
+
+### 2. Explore the Results
+
+We can use the following functions to examine the results.
+
+| Function       | Description                                  |
+|----------------|----------------------------------------------|
+| printcp(fit)   | display the cp table                         |
+| plotcp(fit)    | plot cross-validation results                |
+| rsp.rpart(fit) | plot approx. R-squared for 2 different splits|
+| print(fit)     | print results                                |
+| summary(fit)   | detailed results including surrogate splits  |
+| plot(fit)      | plot decision tree                           |
+| text(fit)      | label the decision tree plot                 |
+
+
+### 3. Prune Tree
+
+We will want to prune the tree in order to avoid overfitting the data. We will select the tree size the minimizes the cross-validated error (see the *xerror* column printed with *printcp(fit)*). We will then prune to the desired size using
+
+*prune(fit, cp=)*
+
+Specifically you use *printcp()* to select the complexity parameter associated with the minimum error, then place it into the *prune()* function.
+
+#### Example
+
+We are going to explore the *ozone* dataset that comes as part of the *faraway* package. We want to predict Ozone from the other variables, but we are going to do it by partitioning the space. First let's load up the dataset and name see what's what.
+
+```{r}
+library(faraway) #Install to get access to the  dataset
+
+
+```
+
+
+The variable names are as follows:
+
+| Variable Name | Description             |
+|---------------|-------------------------|
+| O3            | Daily Ozone Level       |
+| vh            | Pressure height         |
+| wind          | Wind speed at LAX       |
+| temp          | Temperature             |
+| ibh           | Inversion base height   |
+| dpg           | Pressure gradient       |
+| ibt           | Inversion base temp     |
+| vis           | Visibility at LAX       |
+| doy           | Day of year             |
+
+Let's take a look:
+
+```{r}
+summary(ozone)  # What does the dataset look like?
+
+
+
+glimpse (ozone) # Let's take a little glimpse
+
+
+
+```
+
+Before we go any further, let's explore our data just a little bit. 
+
+```{r}
+# Plot panels for each covariate
+ozonem <- melt(ozone, id.vars="O3")
+ggplot(ozonem, aes(x=O3, y=value)) +
+  geom_point(alpha=0.4)+
+  scale_color_brewer(palette="Set2")+
+  facet_wrap(~variable, scales="free_y", ncol=3)
+```
+
+Based on these plots, we should be seeing temp, ibt, and possible vh, as important predictors.
+
+The basic idea of a regression tree is that we split the dataset into increasingly finer partitions with the goal of reducing variability of our outcome variable. In this case our outcome variable is ozone, O3. What happens if we split the dataset into two partitions at the median of the variable temperature. What is the variability of O3 in those two subsets, and how does that compare to its variability in the overall dataset?
+
+```{r}
+
+var(ozone$O3) # Overall variability of ozone
+
+
+# Let's split at median of temperature
+
+temp.lt.med <- filter(ozone, temp < 62)
+temp.ge.med <- filter(ozone, temp >= 62)
+
+var(temp.lt.med$O3)
+var(temp.ge.med$O3)
+```
+
+So you see, we have created two subsets in which the variability of our outcome variable is reduced. Regression trees use that basic principle to keep growing, all the time reducing the variability.
+
+Suppose we just wanted to partition on the basis of the variable temperature, we just call it up in the package rpart
+
+
+```{r}
+fittemp <- rpart(O3 ~ temp, data = ozone)
+
+```
+
+Let's look at the results:
+
+```{r}
+printcp(fittemp) # Display the results
+plotcp(fittemp) # Visualize cross-validation results
+summary(fittemp) # Detailed summary of fit
+```
+
+
+```{r}
+# plot tree
+plot(fittemp, uniform = TRUE, compress = FALSE)
+text(fittemp, use.n = TRUE, all = TRUE, cex = 0.5)
+```
+
+Now we can throw all of the variables in, and see how it partitions:
+
+```{r}
+fitall <- rpart(O3 ~ ., data = ozone)
+```
+
+So what does this partition look like?
+
+```{r}
+# Now let's look at fitall
+printcp(fitall) # Display the results
+plotcp(fitall) # Visualize cross-validation results
+summary(fitall) # Detailed summary of fit
+
+```
+ 
+ And for the plot:
+ 
+ 
+```{r}
+plot(fitall, uniform = TRUE, compress = FALSE, main = "Regression Tree for Ozone Dataset")
+text(fitall, use.n = TRUE, all = TRUE, cex = 0.5)
+```
+
+Let's think about pruning the tree now. 
+
+```{r}
+# Prune the tree
+pfit <- prune(fitall, cp = fitall$cptable[which.min(fitall$cptable[, "xerror"]), "CP"])
+
+# Plot the pruned tree
+plot(pfit, uniform = TRUE, compress = FALSE, main = "Pruned Regression Tree for Ozone")
+text(pfit, use.n = TRUE, all = TRUE, cex = 0.5)
+
+```
+
+The package *party* provides nonparametric regression trees, and it also creates better graphics. Let's giv it a try.
+
+```{r}
+library(party)
+
+fitallp <- ctree(O3 ~ ., data = ozone)
+plot(fitallp, main = "Conditional Inference Tree for Ozone")
+```
+
+In this package, tree growth is based on statistical stopping rules, thus pruning should not be necessary.
+
+
+Another type of classifier is a decision tree. This comes from logistic regression. You will recall a couple of weeks ago we talked about the generalized linear model, and logistic regression is one form of such a model.
+
+```{r}
+
+# Logistic regression on Kyphosis
+summary(kyphosis)
+
+mykyph <- kyphosis %>% mutate(kyph = (Kyphosis == "present"))
+
+summary(mykyph)
+
+glm(kyph ~ Age + Number + Start, data = mykyph)
+
+```
+
+
+Let's turn for a moment to the dataset "kyphosis" data frame. Here the outcome of interest is kyphosis, a type of deformation, after surgery, and the independent variables are age in months (Age), number of vertebrae involved (Number), and the highest vertebrae operated on (Start).
+
+```{r}
+# Grow tree
+summary(kyphosis)
+fitk <- rpart(Kyphosis ~ Age + Number + Start, method = "class", data = kyphosis)
+class(fitk)
+
+# Display the results
+printcp(fitk)
+
+#Visualize the cross-validation results 
+plotcp(fitk)
+
+# Get a detailed summary of the splits
+summary(fitk)
+
+# Plot the tree
+plot(fitk, uniform = TRUE, main = "Classification Tree for Kyphosis")
+text(fitk, use.n = TRUE, all = TRUE, cex = 0.8)
+```
+
+Now let's try pruning the tree:
+
+```{r}
+
+# Prune the tree
+prune_fitk <- prune(fitk, cp = fitk$cptable[which.min(fitk$cptable[, "xerror"]), "CP"])
+class(prune_fitk)
+
+###############################
+
+# Remember when I said in class that if you keep knitting, you can get beyond this error. Well, just forget it. I've commented it out so you can just move on.
+
+# Plot the pruned tree
+#plot(prune_fitk, uniform = TRUE, main = "Pruned Classification Tree for Kyphosis")
+#text(prune_fitk, use.n = TRUE, all = TRUE, cex = 0.8)
+
+################
+
+```
+
+
+Let's see what happens when we use the `party` package instead:
+
+```{r}
+library(party)
+fitallpk <- ctree(Kyphosis ~ ., data = kyphosis)
+class(fitallpk)
+plot(fitallpk, main = "Conditional Inference Tree for Ozone")
+
+
+```
+
+
+When you are looking at discrete data, you can no longer use the variability as a criterion for splitting. One alternative is the *classification error rate*. When we assign a predicted value to an obseration in a given region as the *most commonly occurring class* of observed values in that region, then classification error rate is the fraction of observations that don't match the predicted value. So we can look at this across all regions using the *Gini index* defined as follows:
+
+\begin{equation}
+G=\sum_{k=1}^{K} \hat{p}_{mk}(1-\hat{p}_{mk})
+\end{equation}
+
+which is a measure of total variance across the K classes that we create. The partitioning programs use the Gini index to evaluate the splits, trying first the ones with the smallest values of the Gini.
+
+
+
+
+Let's do another dataset. Consider the NHANES dataset. We want to predict who has diabetes in the NHANES dataset.
+
+```{r}
+# Call the dataset, select some variables, discard anybody with unknown values, and take a look
+people <- NHANES %>% select(Age, Gender, Diabetes, BMI, HHIncome, PhysActive) %>% na.omit()
+
+glimpse(people)
+
+```
+
+```{r}
+
+# What is the marginal distribution of Diabetes?
+
+tally(~ Diabetes, data = people, format = "percent")
+
+```
+
+
+
+Now let's try the partitioning:
+
+```{r}
+# Recursive partitioning of diabetes on age, bmi, gender, and physical activity
+whoIsDiabetic <- rpart(Diabetes ~ Age + BMI + Gender + PhysActive, data = people, control = rpart.control(cp = 0.005, minbucket = 30))
+whoIsDiabetic
+
+
+# Plot the tree
+plot(as.party(whoIsDiabetic))
+
+```
+
+How would you interpret this? Well you might say that if you are age <= 52 then you have a very small chance of having diabetes. If you are older than 52, then your chance is greater, and if your BMI is above 40, then your risk increases even more. Let's look at how this partitions.
+
+```{r}
+# Graph as partition
+
+ggplot(data = people, aes(x = Age, y = BMI)) +
+  geom_count(aes(color = Diabetes), alpha = 0.5) +
+  geom_vline(xintercept = 52.5) +
+  geom_segment(x=52.5, xend = 100, y = 39.985, yend = 39.985) +
+  geom_segment(x = 67.5, xend = 67.5, y = 39.985, yend = Inf) +
+  geom_segment(x = 60.5, xend = 60.5, y = 39.985, yend = Inf) +
+  annotate("rect", xmin = 60.5, xmax = 67.5, ymin = 39.985, ymax = Inf, fill = "blue", alpha = 0.1)
+
+```
+
+This is a nice way to visualize a complex model. But the downside is that what recursive partitioning is doing is dividing up the space so that everybody in the same rectangle is receiving the same prediction.
+
+
+
+### Random Forests
+
+Random forests improve predictive accuracy by generating a large number of bootstrapped trees, then averaging across all trees. This is implemented in (what else?) the `randomForestSRC` package. We will also use the `ggRandomForests` package for plotting nice graphs.
+
+```{r}
+library(RColorBrewer)
+library(plot3D)
+library(parallel)
+library(randomForestSRC)
+library(ggRandomForests)
+
+
+set.seed(131)
+# Random Forest for the ozone dataset
+fitallrf <- rfsrc(O3 ~ ., data = ozone, ntree = 100, tree.err=TRUE)
+
+# view the results
+fitallrf
+
+```
+
+
+We see that there are 100 trees in our forest, built from 330 observations and 9 independent variables. It randomly selected 3 candidate variables at each split, and terminated with nodes of not fewer than 5 observations
+
+```{r}
+
+# Plot the OOB errors against the growth of the forest
+gg_e <- gg_error(fitallrf)
+plot(gg_e)
+
+```
+
+We also see that after about 70 trees, there is no substantial improvement in the error rate.
+
+Random forests work on the basis of bootstrap aggregation ("bagging"). Each boot strap sample selects on average a little less than two-thirds of the sample to be in the training set. The remaining third of the observations, the Out-of-Bag (OOB) sample, are used as a the test set for each of the trees in the forest. An OOB prediction error estimate is calculated for each observation by calculating the response over the set of trees which where *not* trained with that particular observation. This error rate has been shown to be nearly identical to n-fold cross-validation. This feature of random forests allows us to obtain both model fit and validation in one fell swoop.
+
+The gg-rfsrc function extracts the OOB prediction estimates from the random forest. 
+
+```{r}
+# Plot the predicted ozone values
+plot(gg_rfsrc(fitallrf), alpha = 0.5)
+```
+
+### Variable Selection
+
+With random forests, the goal is not be parsimonious, but to use all variables available to construct the response predictor. Also, random forests are non-parametric in that they don't require specification of the functional form of covariates to the response. For these reasons, there is no explicit p-value or significance testing for variable selection. Instead, a random forest will ascertain which variable contribute to the prediction through the split rule optimization, choosing variable that optimize the separation of observations. There are two main approaches for variable selection with random forests: Variable Importance and Minimal Depth.
+
+#### Variable Importance
+
+Variable importance (VIMP) inovlves "noising up" each variable in turn. The VIMP is then the difference between the prediction error when the variable of interest is "noised up" and the prediction error when it is not, ultimately the OOB prediction error before and after permutation.
+
+The interpretation is thus:
+
+- Large VIMP ==> misspecification detracts from variable predictive accuracy (good)
+- VIMP near zero ==> the variable contributes nothing to predictive accuracy (neither good nor bad)
+- Negative VIMP ==> predictive accuracy *improves* when the variable is mis-specified (bad)
+
+So if a varible has negative VIMP, this means that noise is more informative than that variable. 
+
+Given this interpretation, we will ignore variables with negative VIMPs and also those with VIMPs near zero.
+
+```{r}
+# Plot the VIMP rankins of independent variables
+
+plot(gg_vimp(fitallrf))
+```
+
+In our random forest, the variables ibt and temp have the largest VIMPs, and there is a sizeable difference with teh remaining variables. So we should focus our attention on ibt and temp over the other variables. 
+
+Also, in this random forest, all VIMP values are positive, although some are small. When there are both positive and negative VIMP values, `plot(gg_vimp())` will color VIMP by the sign of the measure. 
+
+#### Minimal Depth
+
+With VIMP, prognostic factors are determined by testing the forest prediction under alternative data settings and ranking the most important variables according to their impact on predictive ability of the forest. Alternatively we can inspect the forest construction to rank variables. *Minimal depth* assumes that variables with high impact on prediction are those that most frequently split nodes close to the tree trunks (i.e., at the root nod), partitioning the sample into large subsamples.
+
+Within a tree, node levels are numbered based on relative distance to the trunk, which is 0. Minimal depth measures the important risk factors by averaging the depth of the first time a variable is used over all trees in the forest. Lower values mean that the variable is important in splitting large groups of observations.
+
+The *maximal subtree* for variable *x* is the largest subtree whose root node splits on *x*. All parent nodes of *x*'s maximal subtree have nodes that split on variables other than *x*. If a variable does not split the root node, it can have more than one maximal subtree, or a maximal subtree may not exist if there are no splits on that variable. 
+
+Thus minimal depth is a surrogate measure of the predictive ability of the variable. The smaller the minimal depth, the more impact the variable has in sorting observations, and thus on forest prediction.
+
+```{r}
+# Select the variables
+varsel_ozone <- var.select(fitallrf)
+glimpse(varsel_ozone)
+
+
+# Save the gg_minimal_depth object for later use
+gg_md <- gg_minimal_depth(varsel_ozone)
+
+
+# Plot the object
+plot(gg_md)
+
+```
+
+In general with VIMP we examine the values and rather arbitrarily select some point along the ranking where there is a large difference in VIMP values. The minimal depth approach is a bit more quantitative. How do they compare?
+
+We can use the gg_minimal_vimp function to compare rankings between minimal depth and VIMP.
+
+```{r}
+# Plot minimal depth v VIMP
+gg_mdVIMP <- gg_minimal_vimp(gg_md)
+plot(gg_mdVIMP)
+```
+
+In this case we see that the measures are in agreement. If we were to see points above the red dashed line, then they would be ranked higher by VIMP than by minimal depth, indicating that variables are sensitive to misspecification. Points falling below the line have a higher minimal depth ranking, indicating that they are better at dividing large portions of the population. The further the points are from the line, the more discrepant the measures. 
+
+Random forests might seem a little like a black box, but it is possible to use this method to express a functional form for the predictor:
+
+\begin{equation}
+
+\hat{f}_{rf}(x) = f(x)
+
+\end{equation}
+
+Usually this is a complex functional form. We can use graphical methods to examine the predicted response as a function of covariates using variable dependence plots. These show predicted response as a function of a covariate of interest, with each observation represented as a point on the plot. Each predicted point is based on the individual observation of all other covariates and so is a function not only of the covariate of interest. 
+
+```{r}
+#Create the variable dependence object from the random forest
+gg_v <- gg_variable(fitallrf)
+
+# Use the top ranked minimal depth variables only, plotted in minimal depth rank order
+xvar <- gg_md$topvars
+
+# Plot the variable list in a single panel plot
+plot(gg_v, xvar = xvar, panel = TRUE, alpha = 0.4) +
+  labs(y="Predicted Ozone reading", x="")
+```
+
+These look very similar to the EDA plots we made at the beginning, albeit with a transposed axis. Panels are sorted to match the order of variables in the xvar argument and include a smooth loess line with 95% shaded confidence band, indicating the trend of prediction dependence over the covariate values. 
+
+Let's try this with a decision tree rather than a regression tree, starting with the kyphosis dataset. First do the EDA:
+
+```{r}
+
+
+mykyph <- mykyph %>% select(kyph, Age, Number, Start)
+kyphm <- melt(mykyph, id.vars = "kyph")
+ggplot(kyphm, aes(x=kyph, y = value, fill = kyph)) +
+  geom_boxplot(notch = F) +
+  facet_wrap(~variable, scales = "free_y", ncol=3)
+
+```
+
+```{r}
+
+set.seed(5491)
+mykyph <- mykyph %>% mutate(fkyph = as.factor(kyph))
+# Random forest for the kyphosis dataset
+kyphfr <- rfsrc(fkyph ~., data = mykyph, ntree = 1000, tree.err = TRUE)
+
+# Let's see what we've got
+kyphfr
+
+```
+
+Plot the OOB errors against the growth of the forest
+
+```{r}
+# Plotting OOB errors agains number of trees
+
+gg_ek <- gg_error(kyphfr)
+plot(gg_ek)
+
+```
+
+As we can see, the errors quickly drop to a very small amount.
+
+This isn't very much fun. Let's try to see if we have more fun with the NHANES Diabetes dataset.
+
+
+First some EDA:
+
+```{r}
+
+peoplec <- people %>% select(Diabetes, Age, BMI)
+peoplec <- melt(peoplec, id.vars = "Diabetes")
+class(peoplec)
+ggplot(peoplec, aes(x=Diabetes, y = value, fill = Diabetes)) +
+  geom_boxplot(notch = F) +
+  facet_wrap(~variable, scales = "free_y", ncol=3)
+summary(people)
+
+```
+
+
+
+Let's try creating the random forests now:
+
+```{r}
+set.seed(1030)
+
+peoplec <- people %>% select(Diabetes, Age, BMI, Gender, PhysActive) %>% mutate(fdiab = as.factor(Diabetes))
+summary(peoplec)
+is.factor(peoplec$fdiab)
+class(peoplec)
+peoplec <- as.data.frame(peoplec)
+```
+
+
+```{r}
+diabrf <- rfsrc(fdiab ~ Age + Gender + BMI + PhysActive, data = peoplec, ntree = 1000, tree.err = TRUE)
+
+diabrf
+
+```
+
+
+
+
+
